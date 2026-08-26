@@ -3,8 +3,9 @@ import pandas as pd
 from collections import defaultdict
 from datetime import datetime
 import re
+from PIL import Image
+import pytesseract
 
-# إعداد الصفحة
 st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
 
 st.title("📚 المجزئ البيداغوجي الذكي")
@@ -30,8 +31,31 @@ with col2:
 
 st.divider()
 
-# إدخال البيانات
-st.subheader("✏️ أدخل بيانات التلاميذ")
+# ============================================
+# رفع الصورة
+# ============================================
+st.subheader("📸 رفع صورة شبكة التقييم")
+uploaded_file = st.file_uploader("اختر صورة الشبكة (JPG أو PNG)", type=["jpg", "png", "jpeg"])
+
+if uploaded_file is not None:
+    img = Image.open(uploaded_file)
+    st.image(img, caption="الصورة المرفوعة", use_column_width=True)
+    
+    if st.button("🔍 استخراج البيانات من الصورة"):
+        with st.spinner("جاري استخراج البيانات..."):
+            try:
+                text = pytesseract.image_to_string(img, lang='ara')
+                st.text_area("النص المستخرج", text, height=200)
+                st.info("📌 سيتم تحليل هذا النص تلقائياً في التحديث القادم")
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الصورة: {e}")
+
+st.markdown("---")
+
+# ============================================
+# الإدخال اليدوي (كما كان)
+# ============================================
+st.subheader("✏️ أو أدخل البيانات يدوياً")
 
 names = st.text_area("👨‍🎓 أسماء التلاميذ (كل اسم في سطر)")
 grades_m1 = st.text_area("📊 تقديرات المعيار 1 (كل تقدير في سطر)")
@@ -39,7 +63,7 @@ grades_m2 = st.text_area("📊 تقديرات المعيار 2 (كل تقدير 
 grades_m3 = st.text_area("📊 تقديرات المعيار 3 (كل تقدير في سطر)")
 grades_m4 = st.text_area("📊 تقديرات المعيار 4 (كل تقدير في سطر)")
 
-# دوال التحليل
+# دوال التحليل (نفسها)
 def get_difficulties(row):
     difficulties = []
     if row['م1'] == 'ج':
@@ -65,7 +89,7 @@ def classify_student(row):
     else:
         return 'غير مصنف'
 
-# قوالب المذكرات حسب المواد
+# قوالب المذكرات
 memo_templates = {
     'رياضيات': {'title': 'مذكرة معالجة في الرياضيات', 'strategies': 'استراتيجية حل المشكلات + التعلم التعاوني', 'activities': 'تمارين تطبيقية، مسائل حياتية', 'tools': 'السبورة، الكراسات', 'evaluation': 'اختبار قصير'},
     'علوم': {'title': 'مذكرة معالجة في العلوم', 'strategies': 'التجريب + الاستقصاء العلمي', 'activities': 'تجارب عملية، مشاريع بحثية', 'tools': 'المختبر، المجهر', 'evaluation': 'تقرير تجربة'},
@@ -79,21 +103,18 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
     if not names or not grades_m1:
         st.error("❌ الرجاء إدخال أسماء التلاميذ وتقديرات المعيار 1 على الأقل.")
     else:
-        # معالجة البيانات
         name_list = names.strip().split('\n')
         m1_list = grades_m1.strip().split('\n') if grades_m1 else []
         m2_list = grades_m2.strip().split('\n') if grades_m2 else []
         m3_list = grades_m3.strip().split('\n') if grades_m3 else []
         m4_list = grades_m4.strip().split('\n') if grades_m4 else []
         
-        # التأكد من تطابق الأطوال
         max_len = len(name_list)
         m1_list = m1_list + [''] * (max_len - len(m1_list))
         m2_list = m2_list + [''] * (max_len - len(m2_list))
         m3_list = m3_list + [''] * (max_len - len(m3_list))
         m4_list = m4_list + [''] * (max_len - len(m4_list))
         
-        # إنشاء DataFrame
         data = []
         for i in range(max_len):
             data.append([str(i+1).zfill(2), name_list[i], m1_list[i] if i < len(m1_list) else '', 
@@ -102,16 +123,12 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
                          m4_list[i] if i < len(m4_list) else ''])
         
         df = pd.DataFrame(data, columns=['الرقم', 'الاسم', 'م1', 'م2', 'م3', 'م4'])
-        
-        # تطبيق دوال التحليل
         df['الصعوبات'] = df.apply(get_difficulties, axis=1)
         df['الفوج'] = df.apply(classify_student, axis=1)
         
-        # فصل المرشدين عن التلاميذ المحتاجين
         mentors = df[df['الفوج'] == 'مرشد (أ/ب)']
         students_need_support = df[df['الفوج'] != 'مرشد (أ/ب)']
         
-        # تجميع حسب الصعوبات
         groups = defaultdict(list)
         for _, student in students_need_support.iterrows():
             if student['الصعوبات']:
@@ -120,14 +137,11 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
                 key = 'صعوبة غير محددة'
             groups[key].append(student['الاسم'])
         
-        # عرض النتائج
         st.success(f"✅ تم تحليل {len(df)} تلميذاً بنجاح")
         
-        # عرض الجدول
         st.subheader("📊 جدول التلاميذ المصنفين")
         st.dataframe(df, use_container_width=True)
         
-        # إحصائيات
         st.subheader("📈 إحصائيات الأفواج")
         col1, col2, col3, col4 = st.columns(4)
         counts = df['الفوج'].value_counts()
@@ -140,9 +154,7 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         with col4:
             st.metric("📖 الأخرى", counts.get("غير مصنف", 0))
         
-        # التقرير المفصل
         st.subheader("📋 تقرير المعالجة البيداغوجية")
-        
         template = memo_templates.get(matiere, memo_templates['رياضيات'])
         
         st.markdown(f"**المادة:** {matiere}")
@@ -154,13 +166,10 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         
         st.divider()
         
-        # عرض المجموعات
         for i, (difficulty, students) in enumerate(groups.items(), 1):
             with st.expander(f"🔹 المجموعة {i} - الصعوبة: {difficulty}"):
                 st.write(f"**التلاميذ:** {', '.join(students)}")
                 st.write(f"**عددهم:** {len(students)}")
-                
-                # اقتراح علاج
                 st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
                 st.write(f"**📝 الأنشطة:** {template['activities']}")
                 st.write(f"**🧰 الوسائل:** {template['tools']}")
@@ -171,6 +180,5 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
                 else:
                     st.info("💡 مجموعة متوسطة → مجموعات فرعية داخل المجموعة")
         
-        # رابط التحميل
         csv = df.to_csv(index=False)
         st.download_button("📥 تحميل التقرير (CSV)", csv, f"تقرير_{matiere}_{niveau}.csv", "text/csv")
