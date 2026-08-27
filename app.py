@@ -1,52 +1,47 @@
 import streamlit as st
 import pandas as pd
 from collections import defaultdict
-from PIL import Image, ImageEnhance, ImageFilter
-import pytesseract
+from PIL import Image
+import google.generativeai as genai
+import json
 import re
-import os
-import numpy as np
 
 # ============================================
-# إعداد مسار Tesseract
+# إعداد Gemini API
 # ============================================
-if os.name == 'nt':
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+# ضع مفتاح API الخاص بك هنا (أو استخدم st.secrets للنشر)
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # استبدله بمفتاحك
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ============================================
-# دالة معالجة الصورة قبل OCR
+# دالة تحليل الصورة باستخدام Gemini
 # ============================================
-def preprocess_image(img):
-    """تحسين جودة الصورة قبل استخراج النصوص"""
-    # تحويل إلى أبيض وأسود
-    img = img.convert('L')
-    # تحسين التباين
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
-    # زيادة الحدة
-    img = img.filter(ImageFilter.SHARPEN)
-    return img
-
-# ============================================
-# دالة استخراج البيانات من النص
-# ============================================
-def extract_data_from_text(text):
-    """استخراج الأسماء والتقديرات من النص المستخرج"""
-    lines = text.strip().split('\n')
-    data = []
-    for line in lines:
-        # البحث عن اسم + 4 تقديرات (أ، ب، ج، د)
-        match = re.search(r'([\u0600-\u06FF\s]{2,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
-        if match:
-            name = match.group(1).strip()
-            m1 = match.group(2)
-            m2 = match.group(3)
-            m3 = match.group(4)
-            m4 = match.group(5)
-            data.append([name, m1, m2, m3, m4])
-    return data
+def analyze_image_with_gemini(image):
+    """إرسال الصورة إلى Gemini واستخراج البيانات"""
+    prompt = """
+    أنت مساعد ذكي متخصص في تحليل شبكات تقييم التلاميذ في الطور المتوسط.
+    
+    المطلوب:
+    1. اقرأ الصورة التي تحتوي على شبكة تقييم.
+    2. استخرج أسماء التلاميذ وتقديراتهم (م، أ، ج، د) من الشبكة.
+    3. أعد البيانات على شكل JSON بهذا التنسيق:
+    [
+        {"name": "اسم التلميذ", "m1": "تقدير المعيار1", "m2": "تقدير المعيار2", "m3": "تقدير المعيار3", "m4": "تقدير المعيار4"},
+        ...
+    ]
+    
+    ملاحظات:
+    - التقديرات هي: م (مكتسب)، أ (متحكم)، ج (مقترح الاكتساب)، د (غير مكتسب).
+    - إذا كان هناك 4 معايير فقط، استخدمها. إذا كان هناك أكثر، اختر أول 4.
+    - تأكد من صحة الأسماء والتقديرات.
+    
+    أعد JSON فقط، بدون أي نص إضافي.
+    """
+    
+    response = model.generate_content([prompt, image])
+    return response.text
 
 # ============================================
 # واجهة Streamlit
@@ -56,23 +51,23 @@ st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="�
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# كود التفعيل
+# كود التفعيل (للبيع)
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
 
 if code not in VALID_CODES:
-    st.sidebar.warning("⚠️ كود غير صحيح")
+    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
     st.stop()
 else:
-    st.sidebar.success("✅ تم التفعيل")
+    st.sidebar.success("✅ تم التفعيل بنجاح")
 
 # اختيار المادة والمستوى
 col1, col2 = st.columns(2)
 with col1:
     niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
 with col2:
-    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ"])
+    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ وجغرافيا"])
 
 st.divider()
 
@@ -80,45 +75,51 @@ st.divider()
 # رفع الصورة (الميزة الأساسية)
 # ============================================
 st.subheader("📸 رفع شبكة التقييم")
+st.caption("صوّر الشبكة الورقية وارفعها")
+
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
     try:
-        # فتح الصورة
         img = Image.open(uploaded_file)
-        st.image(img, caption="الصورة الأصلية", use_container_width=True)
+        st.image(img, caption="الصورة المرفوعة", use_container_width=True)
         
-        # معالجة الصورة
-        processed_img = preprocess_image(img)
-        st.image(processed_img, caption="الصورة بعد المعالجة (للقراءة)", use_container_width=True)
-        
-        if st.button("🔍 استخراج البيانات"):
-            with st.spinner("جاري تحليل الصورة..."):
+        if st.button("🔍 تحليل الصورة وتقسيم التلاميذ", type="primary"):
+            with st.spinner("جاري تحليل الصورة باستخدام الذكاء الاصطناعي..."):
                 try:
-                    # استخراج النص بعد المعالجة
-                    text = pytesseract.image_to_string(processed_img, lang='ara')
+                    # إرسال الصورة إلى Gemini
+                    response_text = analyze_image_with_gemini(img)
                     
-                    if text.strip():
-                        st.success("✅ تم استخراج النص!")
-                        with st.expander("📝 عرض النص المستخرج"):
-                            st.text(text)
+                    # استخراج JSON من الرد
+                    json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group()
+                        data = json.loads(json_str)
+                    else:
+                        # محاولة قراءة النص مباشرة
+                        data = json.loads(response_text)
+                    
+                    if data:
+                        # تحويل إلى DataFrame
+                        df = pd.DataFrame(data)
                         
-                        # استخراج البيانات من النص
-                        data = extract_data_from_text(text)
-                        
-                        if data:
-                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                        # التأكد من الأعمدة المطلوبة
+                        required_cols = ['name', 'm1', 'm2', 'm3', 'm4']
+                        if all(col in df.columns for col in required_cols):
+                            df.columns = ['الاسم', 'م1', 'م2', 'م3', 'م4']
+                            st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
                             st.dataframe(df, use_container_width=True)
-                            st.info("📌 تم استخراج البيانات. اضغط على 'تحليل البيانات' أدناه.")
-                            # حفظ البيانات في session_state
+                            
+                            # حفظ في session_state
                             st.session_state['df_image'] = df
                         else:
-                            st.warning("⚠️ لم يتم العثور على بيانات. تأكد من وضوح الصورة.")
+                            st.error("❌ البيانات المستخرجة غير مكتملة. تأكد من وضوح الصورة.")
                     else:
-                        st.error("❌ لم يتم استخراج أي نص. حاول تصوير الشبكة بوضوح.")
+                        st.error("❌ لم يتم العثور على بيانات. حاول تصوير الشبكة بوضوح.")
                         
                 except Exception as e:
-                    st.error(f"❌ خطأ: {e}")
+                    st.error(f"❌ حدث خطأ: {e}")
+                    st.info("💡 تأكد من أن الصورة واضحة وأن الشبكة تحتوي على أسماء وتقديرات.")
     except Exception as e:
         st.error(f"❌ خطأ في فتح الصورة: {e}")
 
@@ -162,14 +163,13 @@ memo_templates = {
 }
 
 # ============================================
-# زر التحليل
+# زر التحليل النهائي
 # ============================================
-if st.button("🚀 تحليل البيانات وإنشاء التقرير", type="primary"):
-    # محاولة استخدام البيانات من الصورة
+if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء التقرير", type="secondary"):
     if 'df_image' in st.session_state and not st.session_state['df_image'].empty:
         df_analysis = st.session_state['df_image'].copy()
     else:
-        st.error("❌ الرجاء رفع صورة واستخراج البيانات أولاً.")
+        st.error("❌ الرجاء رفع صورة وتحليلها أولاً.")
         st.stop()
     
     df_analysis['الصعوبات'] = df_analysis.apply(get_difficulties, axis=1)
@@ -187,27 +187,40 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         groups[key].append(student['الاسم'])
     
     st.balloons()
-    st.success(f"✅ تم تحليل {len(df_analysis)} تلميذاً")
+    st.success(f"✅ تم تقسيم {len(df_analysis)} تلميذاً إلى أفواج!")
     
+    # إحصائيات
     st.subheader("📈 إحصائيات الأفواج")
     col1, col2, col3 = st.columns(3)
     counts = df_analysis['الفوج'].value_counts()
     with col1:
-        st.metric("🆘 الإنقاذ", counts.get("فوج إنقاذ عاجل (د)", 0))
+        st.metric("🆘 فوج الإنقاذ", counts.get("فوج إنقاذ عاجل (د)", 0))
     with col2:
-        st.metric("📚 الدعم", counts.get("فوج دعم مكثف (ج)", 0))
+        st.metric("📚 فوج الدعم", counts.get("فوج دعم مكثف (ج)", 0))
     with col3:
-        st.metric("🌟 التعزيز", counts.get("مرشد (أ/ب)", 0))
+        st.metric("🌟 المرشدون", counts.get("مرشد (أ/ب)", 0))
     
+    # عرض الجدول
     with st.expander("📊 عرض جدول التلاميذ"):
         st.dataframe(df_analysis, use_container_width=True)
     
-    st.subheader("📋 التقرير")
+    # التقرير
+    st.subheader("📋 تقرير المعالجة البيداغوجية")
     template = memo_templates.get(matiere, memo_templates['رياضيات'])
     
-    st.markdown(f"**المادة:** {matiere}  |  **المستوى:** {niveau}  |  **عدد التلاميذ:** {len(df_analysis)}")
+    st.markdown(f"""
+    <div style="background-color: #f0f4ff; padding: 15px; border-radius: 15px;">
+        <b>المادة:</b> {matiere}<br>
+        <b>المستوى:</b> {niveau}<br>
+        <b>عدد التلاميذ:</b> {len(df_analysis)}<br>
+        <b>عدد المرشدين:</b> {len(mentors)}
+    </div>
+    """, unsafe_allow_html=True)
+    
     if not mentors.empty:
         st.info(f"👨‍🏫 المرشدون: {', '.join(mentors['الاسم'].tolist())}")
+    
+    st.divider()
     
     for i, (difficulty, students) in enumerate(groups.items(), 1):
         with st.expander(f"🔹 المجموعة {i} - الصعوبة: {difficulty}"):
@@ -216,5 +229,11 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
             st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
             st.write(f"**📝 الأنشطة:** {template['activities']}")
     
+    # تحميل التقرير
     csv = df_analysis.to_csv(index=False)
-    st.download_button("📥 تحميل التقرير", csv, f"تقرير_{matiere}.csv", "text/csv")
+    st.download_button(
+        label="📥 تحميل التقرير (Excel)",
+        data=csv,
+        file_name=f"تقرير_{matiere}_{niveau}.csv",
+        mime="text/csv"
+    )
