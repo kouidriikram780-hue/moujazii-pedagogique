@@ -9,7 +9,6 @@ import os
 # ============================================
 # إعداد مسار Tesseract (مهم جداً للنشر)
 # ============================================
-# محاولة تعيين المسار تلقائياً حسب بيئة التشغيل
 if os.name == 'nt':  # نظام Windows
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 else:  # نظام Linux (Streamlit Cloud)
@@ -59,10 +58,14 @@ st.caption("صوّر الشبكة الورقية وارفعها")
 
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
+# متغير لتخزين البيانات المستخرجة من الصورة
+df_image_data = None
+
 if uploaded_file is not None:
     try:
         img = Image.open(uploaded_file)
-        st.image(img, caption="الصورة المرفوعة", use_column_width=True)
+        # ✅ تم التعديل هنا: use_column_width -> use_container_width
+        st.image(img, caption="الصورة المرفوعة", use_container_width=True)
         
         if st.button("🔍 استخراج البيانات من الصورة"):
             with st.spinner("جاري تحليل الصورة واستخراج البيانات..."):
@@ -79,7 +82,7 @@ if uploaded_file is not None:
                         lines = text.strip().split('\n')
                         data = []
                         for line in lines:
-                            # البحث عن اسم + تقديرات
+                            # البحث عن اسم + تقديرات (م، أ، ج، د)
                             match = re.search(r'([\u0600-\u06FF\s]{2,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
                             if match:
                                 name = match.group(1).strip()
@@ -90,8 +93,9 @@ if uploaded_file is not None:
                                 data.append([name, m1, m2, m3, m4])
                         
                         if data:
-                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
-                            st.dataframe(df, use_container_width=True)
+                            df_image_data = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                            # ✅ تم التعديل هنا أيضاً use_container_width
+                            st.dataframe(df_image_data, use_container_width=True)
                             st.info("📌 تم استخراج البيانات. يمكنك الآن الضغط على 'تحليل البيانات' أدناه.")
                         else:
                             st.warning("⚠️ لم يتم العثور على بيانات منظمة. حاول تحسين جودة الصورة.")
@@ -159,11 +163,11 @@ memo_templates = {
 # ============================================
 if st.button("🚀 تحليل البيانات وإنشاء التقرير", type="primary"):
     # محاولة استخدام البيانات من الصورة أولاً
-    if 'df' in locals() and not df.empty:
-        df_analysis = df.copy()
+    if 'df_image_data' in locals() and df_image_data is not None and not df_image_data.empty:
+        df_analysis = df_image_data.copy()
     elif names and grades_m1:
         name_list = names.strip().split('\n')
-        m1_list = grades_m1.strip().split('\n')
+        m1_list = grades_m1.strip().split('\n') if grades_m1 else []
         m2_list = grades_m2.strip().split('\n') if grades_m2 else []
         m3_list = grades_m3.strip().split('\n') if grades_m3 else []
         m4_list = grades_m4.strip().split('\n') if grades_m4 else []
@@ -247,4 +251,4 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-)
+    )
