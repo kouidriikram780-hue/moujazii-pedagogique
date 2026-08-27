@@ -1,45 +1,91 @@
 import streamlit as st
 import pandas as pd
 from collections import defaultdict
-from PIL import Image
-import google.generativeai as genai
-import json
+from PIL import Image, ImageEnhance, ImageFilter
+import pytesseract
 import re
+import os
+import numpy as np
 
 # ============================================
-# إعداد Gemini API
+# إعداد مسار Tesseract
 # ============================================
-# ضع مفتاح API الخاص بك هنا (أو استخدم st.secrets للنشر)
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.0-pro')
+if os.name == 'nt':
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 # ============================================
-# دالة تحليل الصورة باستخدام Gemini
+# دالة معالجة الصورة متعددة الخطوات
 # ============================================
-def analyze_image_with_gemini(image):
-    """إرسال الصورة إلى Gemini واستخراج البيانات"""
-    prompt = """
-    أنت مساعد ذكي متخصص في تحليل شبكات تقييم التلاميذ في الطور المتوسط.
-    
-    المطلوب:
-    1. اقرأ الصورة التي تحتوي على شبكة تقييم.
-    2. استخرج أسماء التلاميذ وتقديراتهم (م، أ، ج، د) من الشبكة.
-    3. أعد البيانات على شكل JSON بهذا التنسيق:
-    [
-        {"name": "اسم التلميذ", "m1": "تقدير المعيار1", "m2": "تقدير المعيار2", "m3": "تقدير المعيار3", "m4": "تقدير المعيار4"},
-        ...
-    ]
-    
-    ملاحظات:
-    - التقديرات هي: م (مكتسب)، أ (متحكم)، ج (مقترح الاكتساب)، د (غير مكتسب).
-    - إذا كان هناك 4 معايير فقط، استخدمها. إذا كان هناك أكثر، اختر أول 4.
-    - تأكد من صحة الأسماء والتقديرات.
-    
-    أعد JSON فقط، بدون أي نص إضافي.
+def preprocess_image(img):
     """
+    تحسين جودة الصورة قبل OCR باستخدام تقنيات متعددة
+    """
+    # 1. تحويل إلى تدرج رمادي (Grayscale)
+    img = img.convert('L')
     
-    response = model.generate_content([prompt, image])
-    return response.text
+    # 2. تحسين التباين (Contrast Enhancement)
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.5)  # زيادة التباين
+    
+    # 3. زيادة الحدة (Sharpening)
+    img = img.filter(ImageFilter.SHARPEN)
+    img = img.filter(ImageFilter.SHARPEN)  # مرتين لزيادة الحدة
+    
+    # 4. تكبير الصورة (Resize) لجعل النص أكبر وأوضح
+    width, height = img.size
+    img = img.resize((width*2, height*2), Image.Resampling.LANCZOS)
+    
+    # 5. تحسين السطوع (Brightness)
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(1.2)
+    
+    return img
+
+# ============================================
+# دالة استخراج البيانات الذكية
+# ============================================
+def extract_students_smart(text):
+    """استخراج الأسماء والتقديرات من النص"""
+    lines = text.strip().split('\n')
+    students = []
+    
+    for line in lines:
+        line = line.strip()
+        if len(line) < 3:
+            continue
+        
+        # البحث عن التقديرات (م، أ، ج، د) في السطر
+        grades = re.findall(r'[مأجد]', line)
+        
+        if len(grades) >= 4:
+            grades = grades[:4]
+            
+            # إزالة التقديرات من النص للحصول على الاسم
+            name_text = line
+            for g in grades:
+                name_text = name_text.replace(g, '', 1)
+            
+            # تنظيف النص (إزالة الأرقام والرموز)
+            name_text = re.sub(r'[0-9\|\-\(\)\.\,\s]+', ' ', name_text)
+            name_text = re.sub(r'\s+', ' ', name_text).strip()
+            
+            if len(name_text) > 2 and re.search(r'[\u0600-\u06FF]', name_text):
+                students.append([name_text] + grades)
+    
+    # إذا لم نجد نتائج، نحاول نمطاً آخر
+    if not students:
+        for line in lines:
+            line = line.strip()
+            match = re.search(r'([\u0600-\u06FF\s]{4,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
+            if match:
+                name = match.group(1).strip()
+                m1, m2, m3, m4 = match.group(2), match.group(3), match.group(4), match.group(5)
+                if all(g in ['م', 'أ', 'ج', 'د'] for g in [m1, m2, m3, m4]):
+                    students.append([name, m1, m2, m3, m4])
+    
+    return students
 
 # ============================================
 # واجهة Streamlit
@@ -49,7 +95,7 @@ st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="�
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# كود التفعيل (للبيع)
+# كود التفعيل
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
@@ -70,61 +116,56 @@ with col2:
 st.divider()
 
 # ============================================
-# رفع الصورة (الميزة الأساسية)
+# رفع الصورة مع المعالجة
 # ============================================
-st.subheader("📸 رفع شبكة التقييم")
-st.caption("صوّر الشبكة الورقية وارفعها")
+st.subheader("📸 رفع شبكة التقييم (مع تحسين الصورة)")
+st.caption("صوّر الشبكة الورقية بوضوح وارفعها")
 
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
     try:
+        # فتح الصورة الأصلية
         img = Image.open(uploaded_file)
-        st.image(img, caption="الصورة المرفوعة", use_container_width=True)
+        st.image(img, caption="الصورة الأصلية", use_container_width=True)
         
-        if st.button("🔍 تحليل الصورة وتقسيم التلاميذ", type="primary"):
-            with st.spinner("جاري تحليل الصورة باستخدام الذكاء الاصطناعي..."):
+        # معالجة الصورة
+        processed_img = preprocess_image(img)
+        st.image(processed_img, caption="الصورة بعد التحسين", use_container_width=True)
+        
+        if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
+            with st.spinner("جاري تحليل الصورة..."):
                 try:
-                    # إرسال الصورة إلى Gemini
-                    response_text = analyze_image_with_gemini(img)
+                    # استخراج النص من الصورة المعالجة
+                    text = pytesseract.image_to_string(processed_img, lang='ara')
                     
-                    # استخراج JSON من الرد
-                    json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group()
-                        data = json.loads(json_str)
-                    else:
-                        # محاولة قراءة النص مباشرة
-                        data = json.loads(response_text)
-                    
-                    if data:
-                        # تحويل إلى DataFrame
-                        df = pd.DataFrame(data)
+                    if text.strip():
+                        st.success("✅ تم استخراج النص بنجاح!")
+                        with st.expander("📝 عرض النص المستخرج"):
+                            st.text(text)
                         
-                        # التأكد من الأعمدة المطلوبة
-                        required_cols = ['name', 'm1', 'm2', 'm3', 'm4']
-                        if all(col in df.columns for col in required_cols):
-                            df.columns = ['الاسم', 'م1', 'م2', 'م3', 'م4']
+                        # استخراج البيانات من النص
+                        data = extract_students_smart(text)
+                        
+                        if data:
+                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
                             st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
                             st.dataframe(df, use_container_width=True)
-                            
-                            # حفظ في session_state
                             st.session_state['df_image'] = df
                         else:
-                            st.error("❌ البيانات المستخرجة غير مكتملة. تأكد من وضوح الصورة.")
+                            st.warning("⚠️ لم يتم العثور على بيانات. حاول تحسين جودة الصورة.")
                     else:
-                        st.error("❌ لم يتم العثور على بيانات. حاول تصوير الشبكة بوضوح.")
+                        st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
                         
                 except Exception as e:
-                    st.error(f"❌ حدث خطأ: {e}")
-                    st.info("💡 تأكد من أن الصورة واضحة وأن الشبكة تحتوي على أسماء وتقديرات.")
+                    st.error(f"❌ خطأ: {e}")
     except Exception as e:
         st.error(f"❌ خطأ في فتح الصورة: {e}")
 
 st.markdown("---")
 
 # ============================================
-# دوال التحليل (نفسها)
+# دوال التحليل
 # ============================================
 def get_difficulties(row):
     difficulties = []
@@ -161,13 +202,13 @@ memo_templates = {
 }
 
 # ============================================
-# زر التحليل النهائي
+# زر التقسيم النهائي
 # ============================================
 if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء التقرير", type="secondary"):
     if 'df_image' in st.session_state and not st.session_state['df_image'].empty:
         df_analysis = st.session_state['df_image'].copy()
     else:
-        st.error("❌ الرجاء رفع صورة وتحليلها أولاً.")
+        st.error("❌ الرجاء استخراج البيانات من الصورة أولاً.")
         st.stop()
     
     df_analysis['الصعوبات'] = df_analysis.apply(get_difficulties, axis=1)
@@ -198,11 +239,9 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
     with col3:
         st.metric("🌟 المرشدون", counts.get("مرشد (أ/ب)", 0))
     
-    # عرض الجدول
     with st.expander("📊 عرض جدول التلاميذ"):
         st.dataframe(df_analysis, use_container_width=True)
     
-    # التقرير
     st.subheader("📋 تقرير المعالجة البيداغوجية")
     template = memo_templates.get(matiere, memo_templates['رياضيات'])
     
@@ -227,11 +266,10 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
             st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
             st.write(f"**📝 الأنشطة:** {template['activities']}")
     
-    # تحميل التقرير
     csv = df_analysis.to_csv(index=False)
     st.download_button(
         label="📥 تحميل التقرير (Excel)",
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-    )
+            )
