@@ -12,7 +12,7 @@ import re
 # ضع مفتاح API الخاص بك هنا (أو استخدم st.secrets للنشر)
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.0-pro')
 # ============================================
 # دالة تحليل الصورة باستخدام Gemini
 # ============================================
