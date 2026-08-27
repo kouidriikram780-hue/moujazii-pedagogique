@@ -1,52 +1,78 @@
 import streamlit as st
 import pandas as pd
 from collections import defaultdict
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import pytesseract
 import re
 import os
+import numpy as np
 
 # ============================================
-# إعداد مسار Tesseract (مهم جداً للنشر)
+# إعداد مسار Tesseract
 # ============================================
-if os.name == 'nt':  # نظام Windows
+if os.name == 'nt':
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:  # نظام Linux (Streamlit Cloud)
+else:
     pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
 # ============================================
-# إعدادات الصفحة
+# دالة معالجة الصورة قبل OCR
 # ============================================
-st.set_page_config(
-    page_title="المجزئ البيداغوجي",
-    page_icon="📚",
-    layout="centered"
-)
+def preprocess_image(img):
+    """تحسين جودة الصورة قبل استخراج النصوص"""
+    # تحويل إلى أبيض وأسود
+    img = img.convert('L')
+    # تحسين التباين
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+    # زيادة الحدة
+    img = img.filter(ImageFilter.SHARPEN)
+    return img
+
+# ============================================
+# دالة استخراج البيانات من النص
+# ============================================
+def extract_data_from_text(text):
+    """استخراج الأسماء والتقديرات من النص المستخرج"""
+    lines = text.strip().split('\n')
+    data = []
+    for line in lines:
+        # البحث عن اسم + 4 تقديرات (أ، ب، ج، د)
+        match = re.search(r'([\u0600-\u06FF\s]{2,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
+        if match:
+            name = match.group(1).strip()
+            m1 = match.group(2)
+            m2 = match.group(3)
+            m3 = match.group(4)
+            m4 = match.group(5)
+            data.append([name, m1, m2, m3, m4])
+    return data
+
+# ============================================
+# واجهة Streamlit
+# ============================================
+st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
 
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# ============================================
-# كود التفعيل (للبيع)
-# ============================================
+# كود التفعيل
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
 
 if code not in VALID_CODES:
-    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
+    st.sidebar.warning("⚠️ كود غير صحيح")
     st.stop()
 else:
-    st.sidebar.success("✅ تم التفعيل بنجاح")
+    st.sidebar.success("✅ تم التفعيل")
 
-# ============================================
 # اختيار المادة والمستوى
-# ============================================
 col1, col2 = st.columns(2)
 with col1:
     niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
 with col2:
-    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ وجغرافيا"])
+    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ"])
 
 st.divider()
 
@@ -54,75 +80,52 @@ st.divider()
 # رفع الصورة (الميزة الأساسية)
 # ============================================
 st.subheader("📸 رفع شبكة التقييم")
-st.caption("صوّر الشبكة الورقية وارفعها")
-
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
-
-# متغير لتخزين البيانات المستخرجة من الصورة
-df_image_data = None
 
 if uploaded_file is not None:
     try:
+        # فتح الصورة
         img = Image.open(uploaded_file)
-        # ✅ تم التعديل هنا: use_column_width -> use_container_width
-        st.image(img, caption="الصورة المرفوعة", use_container_width=True)
+        st.image(img, caption="الصورة الأصلية", use_container_width=True)
         
-        if st.button("🔍 استخراج البيانات من الصورة"):
-            with st.spinner("جاري تحليل الصورة واستخراج البيانات..."):
+        # معالجة الصورة
+        processed_img = preprocess_image(img)
+        st.image(processed_img, caption="الصورة بعد المعالجة (للقراءة)", use_container_width=True)
+        
+        if st.button("🔍 استخراج البيانات"):
+            with st.spinner("جاري تحليل الصورة..."):
                 try:
-                    # استخراج النص من الصورة
-                    text = pytesseract.image_to_string(img, lang='ara')
+                    # استخراج النص بعد المعالجة
+                    text = pytesseract.image_to_string(processed_img, lang='ara')
                     
                     if text.strip():
-                        st.success("✅ تم استخراج النص بنجاح!")
+                        st.success("✅ تم استخراج النص!")
                         with st.expander("📝 عرض النص المستخرج"):
                             st.text(text)
                         
-                        # محاولة استخراج الأسماء والتقديرات
-                        lines = text.strip().split('\n')
-                        data = []
-                        for line in lines:
-                            # البحث عن اسم + تقديرات (م، أ، ج، د)
-                            match = re.search(r'([\u0600-\u06FF\s]{2,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
-                            if match:
-                                name = match.group(1).strip()
-                                m1 = match.group(2)
-                                m2 = match.group(3)
-                                m3 = match.group(4)
-                                m4 = match.group(5)
-                                data.append([name, m1, m2, m3, m4])
+                        # استخراج البيانات من النص
+                        data = extract_data_from_text(text)
                         
                         if data:
-                            df_image_data = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
-                            # ✅ تم التعديل هنا أيضاً use_container_width
-                            st.dataframe(df_image_data, use_container_width=True)
-                            st.info("📌 تم استخراج البيانات. يمكنك الآن الضغط على 'تحليل البيانات' أدناه.")
+                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                            st.dataframe(df, use_container_width=True)
+                            st.info("📌 تم استخراج البيانات. اضغط على 'تحليل البيانات' أدناه.")
+                            # حفظ البيانات في session_state
+                            st.session_state['df_image'] = df
                         else:
-                            st.warning("⚠️ لم يتم العثور على بيانات منظمة. حاول تحسين جودة الصورة.")
+                            st.warning("⚠️ لم يتم العثور على بيانات. تأكد من وضوح الصورة.")
                     else:
-                        st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
+                        st.error("❌ لم يتم استخراج أي نص. حاول تصوير الشبكة بوضوح.")
                         
                 except Exception as e:
-                    st.error(f"❌ حدث خطأ أثناء معالجة الصورة: {e}")
+                    st.error(f"❌ خطأ: {e}")
     except Exception as e:
         st.error(f"❌ خطأ في فتح الصورة: {e}")
 
 st.markdown("---")
 
 # ============================================
-# الإدخال اليدوي (كخيار بديل)
-# ============================================
-st.subheader("✏️ أو أدخل البيانات يدوياً")
-st.caption("إذا لم تعمل ميزة الصورة، يمكنك الإدخال يدوياً")
-
-names = st.text_area("👨‍🎓 أسماء التلاميذ (كل اسم في سطر)")
-grades_m1 = st.text_area("📊 تقديرات المعيار 1 (كل تقدير في سطر)")
-grades_m2 = st.text_area("📊 تقديرات المعيار 2 (كل تقدير في سطر)")
-grades_m3 = st.text_area("📊 تقديرات المعيار 3 (كل تقدير في سطر)")
-grades_m4 = st.text_area("📊 تقديرات المعيار 4 (كل تقدير في سطر)")
-
-# ============================================
-# دوال التحليل
+# دوال التحليل (نفسها)
 # ============================================
 def get_difficulties(row):
     difficulties = []
@@ -159,34 +162,16 @@ memo_templates = {
 }
 
 # ============================================
-# زر التحليل النهائي
+# زر التحليل
 # ============================================
 if st.button("🚀 تحليل البيانات وإنشاء التقرير", type="primary"):
-    # محاولة استخدام البيانات من الصورة أولاً
-    if 'df_image_data' in locals() and df_image_data is not None and not df_image_data.empty:
-        df_analysis = df_image_data.copy()
-    elif names and grades_m1:
-        name_list = names.strip().split('\n')
-        m1_list = grades_m1.strip().split('\n') if grades_m1 else []
-        m2_list = grades_m2.strip().split('\n') if grades_m2 else []
-        m3_list = grades_m3.strip().split('\n') if grades_m3 else []
-        m4_list = grades_m4.strip().split('\n') if grades_m4 else []
-        
-        max_len = len(name_list)
-        m1_list = m1_list + [''] * (max_len - len(m1_list))
-        m2_list = m2_list + [''] * (max_len - len(m2_list))
-        m3_list = m3_list + [''] * (max_len - len(m3_list))
-        m4_list = m4_list + [''] * (max_len - len(m4_list))
-        
-        data = []
-        for i in range(max_len):
-            data.append([name_list[i], m1_list[i], m2_list[i], m3_list[i], m4_list[i]])
-        df_analysis = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+    # محاولة استخدام البيانات من الصورة
+    if 'df_image' in st.session_state and not st.session_state['df_image'].empty:
+        df_analysis = st.session_state['df_image'].copy()
     else:
-        st.error("❌ الرجاء إدخال البيانات أو رفع صورة واستخراج البيانات منها.")
+        st.error("❌ الرجاء رفع صورة واستخراج البيانات أولاً.")
         st.stop()
     
-    # تطبيق التحليل
     df_analysis['الصعوبات'] = df_analysis.apply(get_difficulties, axis=1)
     df_analysis['الفوج'] = df_analysis.apply(classify_student, axis=1)
     
@@ -202,9 +187,8 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         groups[key].append(student['الاسم'])
     
     st.balloons()
-    st.success(f"✅ تم تحليل {len(df_analysis)} تلميذاً بنجاح")
+    st.success(f"✅ تم تحليل {len(df_analysis)} تلميذاً")
     
-    # إحصائيات
     st.subheader("📈 إحصائيات الأفواج")
     col1, col2, col3 = st.columns(3)
     counts = df_analysis['الفوج'].value_counts()
@@ -215,27 +199,15 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
     with col3:
         st.metric("🌟 التعزيز", counts.get("مرشد (أ/ب)", 0))
     
-    # عرض الجدول
     with st.expander("📊 عرض جدول التلاميذ"):
         st.dataframe(df_analysis, use_container_width=True)
     
-    # التقرير
-    st.subheader("📋 تقرير المعالجة البيداغوجية")
+    st.subheader("📋 التقرير")
     template = memo_templates.get(matiere, memo_templates['رياضيات'])
     
-    st.markdown(f"""
-    <div style="background-color: #f0f4ff; padding: 15px; border-radius: 15px;">
-        <b>المادة:</b> {matiere}<br>
-        <b>المستوى:</b> {niveau}<br>
-        <b>عدد التلاميذ:</b> {len(df_analysis)}<br>
-        <b>عدد المرشدين:</b> {len(mentors)}
-    </div>
-    """, unsafe_allow_html=True)
-    
+    st.markdown(f"**المادة:** {matiere}  |  **المستوى:** {niveau}  |  **عدد التلاميذ:** {len(df_analysis)}")
     if not mentors.empty:
         st.info(f"👨‍🏫 المرشدون: {', '.join(mentors['الاسم'].tolist())}")
-    
-    st.divider()
     
     for i, (difficulty, students) in enumerate(groups.items(), 1):
         with st.expander(f"🔹 المجموعة {i} - الصعوبة: {difficulty}"):
@@ -244,11 +216,5 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
             st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
             st.write(f"**📝 الأنشطة:** {template['activities']}")
     
-    # تحميل التقرير
     csv = df_analysis.to_csv(index=False)
-    st.download_button(
-        label="📥 تحميل التقرير (Excel)",
-        data=csv,
-        file_name=f"تقرير_{matiere}_{niveau}.csv",
-        mime="text/csv"
-    )
+    st.download_button("📥 تحميل التقرير", csv, f"تقرير_{matiere}.csv", "text/csv")
