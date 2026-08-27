@@ -3,3 +3,4 @@ pandas
 pytesseract
 Pillow
 opencv-python-headless
+google-generativeai
