@@ -1,17 +1,35 @@
 import streamlit as st
 import pandas as pd
 from collections import defaultdict
-from datetime import datetime
-import re
 from PIL import Image
 import pytesseract
+import re
+import os
 
-st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
+# ============================================
+# إعداد مسار Tesseract (مهم جداً للنشر)
+# ============================================
+# محاولة تعيين المسار تلقائياً حسب بيئة التشغيل
+if os.name == 'nt':  # نظام Windows
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:  # نظام Linux (Streamlit Cloud)
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+# ============================================
+# إعدادات الصفحة
+# ============================================
+st.set_page_config(
+    page_title="المجزئ البيداغوجي",
+    page_icon="📚",
+    layout="centered"
+)
 
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# كود التفعيل
+# ============================================
+# كود التفعيل (للبيع)
+# ============================================
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
@@ -22,7 +40,9 @@ if code not in VALID_CODES:
 else:
     st.sidebar.success("✅ تم التفعيل بنجاح")
 
+# ============================================
 # اختيار المادة والمستوى
+# ============================================
 col1, col2 = st.columns(2)
 with col1:
     niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
@@ -32,30 +52,64 @@ with col2:
 st.divider()
 
 # ============================================
-# رفع الصورة
+# رفع الصورة (الميزة الأساسية)
 # ============================================
-st.subheader("📸 رفع صورة شبكة التقييم")
-uploaded_file = st.file_uploader("اختر صورة الشبكة (JPG أو PNG)", type=["jpg", "png", "jpeg"])
+st.subheader("📸 رفع شبكة التقييم")
+st.caption("صوّر الشبكة الورقية وارفعها")
+
+uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
-    img = Image.open(uploaded_file)
-    st.image(img, caption="الصورة المرفوعة", use_column_width=True)
-    
-    if st.button("🔍 استخراج البيانات من الصورة"):
-        with st.spinner("جاري استخراج البيانات..."):
-            try:
-                text = pytesseract.image_to_string(img, lang='ara')
-                st.text_area("النص المستخرج", text, height=200)
-                st.info("📌 سيتم تحليل هذا النص تلقائياً في التحديث القادم")
-            except Exception as e:
-                st.error(f"❌ خطأ في قراءة الصورة: {e}")
+    try:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="الصورة المرفوعة", use_column_width=True)
+        
+        if st.button("🔍 استخراج البيانات من الصورة"):
+            with st.spinner("جاري تحليل الصورة واستخراج البيانات..."):
+                try:
+                    # استخراج النص من الصورة
+                    text = pytesseract.image_to_string(img, lang='ara')
+                    
+                    if text.strip():
+                        st.success("✅ تم استخراج النص بنجاح!")
+                        with st.expander("📝 عرض النص المستخرج"):
+                            st.text(text)
+                        
+                        # محاولة استخراج الأسماء والتقديرات
+                        lines = text.strip().split('\n')
+                        data = []
+                        for line in lines:
+                            # البحث عن اسم + تقديرات
+                            match = re.search(r'([\u0600-\u06FF\s]{2,})\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])\s+([\u0600-\u06FF])', line)
+                            if match:
+                                name = match.group(1).strip()
+                                m1 = match.group(2)
+                                m2 = match.group(3)
+                                m3 = match.group(4)
+                                m4 = match.group(5)
+                                data.append([name, m1, m2, m3, m4])
+                        
+                        if data:
+                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                            st.dataframe(df, use_container_width=True)
+                            st.info("📌 تم استخراج البيانات. يمكنك الآن الضغط على 'تحليل البيانات' أدناه.")
+                        else:
+                            st.warning("⚠️ لم يتم العثور على بيانات منظمة. حاول تحسين جودة الصورة.")
+                    else:
+                        st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
+                        
+                except Exception as e:
+                    st.error(f"❌ حدث خطأ أثناء معالجة الصورة: {e}")
+    except Exception as e:
+        st.error(f"❌ خطأ في فتح الصورة: {e}")
 
 st.markdown("---")
 
 # ============================================
-# الإدخال اليدوي (كما كان)
+# الإدخال اليدوي (كخيار بديل)
 # ============================================
 st.subheader("✏️ أو أدخل البيانات يدوياً")
+st.caption("إذا لم تعمل ميزة الصورة، يمكنك الإدخال يدوياً")
 
 names = st.text_area("👨‍🎓 أسماء التلاميذ (كل اسم في سطر)")
 grades_m1 = st.text_area("📊 تقديرات المعيار 1 (كل تقدير في سطر)")
@@ -63,7 +117,9 @@ grades_m2 = st.text_area("📊 تقديرات المعيار 2 (كل تقدير 
 grades_m3 = st.text_area("📊 تقديرات المعيار 3 (كل تقدير في سطر)")
 grades_m4 = st.text_area("📊 تقديرات المعيار 4 (كل تقدير في سطر)")
 
-# دوال التحليل (نفسها)
+# ============================================
+# دوال التحليل
+# ============================================
 def get_difficulties(row):
     difficulties = []
     if row['م1'] == 'ج':
@@ -89,22 +145,25 @@ def classify_student(row):
     else:
         return 'غير مصنف'
 
-# قوالب المذكرات
 memo_templates = {
-    'رياضيات': {'title': 'مذكرة معالجة في الرياضيات', 'strategies': 'استراتيجية حل المشكلات + التعلم التعاوني', 'activities': 'تمارين تطبيقية، مسائل حياتية', 'tools': 'السبورة، الكراسات', 'evaluation': 'اختبار قصير'},
-    'علوم': {'title': 'مذكرة معالجة في العلوم', 'strategies': 'التجريب + الاستقصاء العلمي', 'activities': 'تجارب عملية، مشاريع بحثية', 'tools': 'المختبر، المجهر', 'evaluation': 'تقرير تجربة'},
-    'لغة عربية': {'title': 'مذكرة معالجة في اللغة العربية', 'strategies': 'التعلم باللعب + القراءة الموجهة', 'activities': 'قراءة نصوص، كتابة إبداعية', 'tools': 'الكتب، البطاقات', 'evaluation': 'إملاء، تعبير كتابي'},
-    'لغة فرنسية': {'title': 'مذكرة معالجة في اللغة الفرنسية', 'strategies': 'التعلم بالمشاريع + المحاكاة', 'activities': 'حوارات، أغاني', 'tools': 'الصور، الفيديو', 'evaluation': 'اختبار شفوي'},
-    'إنجليزية': {'title': 'مذكرة معالجة في اللغة الإنجليزية', 'strategies': 'Total Physical Response + Storytelling', 'activities': 'قصص مصورة، أغاني', 'tools': 'الفيديو، الصور', 'evaluation': 'محادثة قصيرة'},
-    'تاريخ': {'title': 'مذكرة معالجة في التاريخ', 'strategies': 'التعلم بالخرائط + السرد القصصي', 'activities': 'خرائط ذهنية، خطوط زمنية', 'tools': 'الخرائط، الصور', 'evaluation': 'خرائط، اختبار مقالي'}
+    'رياضيات': {'strategies': 'حل المشكلات + التعلم التعاوني', 'activities': 'تمارين تطبيقية، مسائل حياتية'},
+    'علوم': {'strategies': 'التجريب + الاستقصاء العلمي', 'activities': 'تجارب عملية، مشاريع بحثية'},
+    'لغة عربية': {'strategies': 'التعلم باللعب + القراءة الموجهة', 'activities': 'قراءة نصوص، كتابة إبداعية'},
+    'لغة فرنسية': {'strategies': 'التعلم بالمشاريع + المحاكاة', 'activities': 'حوارات، أغاني'},
+    'إنجليزية': {'strategies': 'Total Physical Response + Storytelling', 'activities': 'قصص مصورة، أغاني'},
+    'تاريخ': {'strategies': 'التعلم بالخرائط + السرد القصصي', 'activities': 'خرائط ذهنية، خطوط زمنية'}
 }
 
+# ============================================
+# زر التحليل النهائي
+# ============================================
 if st.button("🚀 تحليل البيانات وإنشاء التقرير", type="primary"):
-    if not names or not grades_m1:
-        st.error("❌ الرجاء إدخال أسماء التلاميذ وتقديرات المعيار 1 على الأقل.")
-    else:
+    # محاولة استخدام البيانات من الصورة أولاً
+    if 'df' in locals() and not df.empty:
+        df_analysis = df.copy()
+    elif names and grades_m1:
         name_list = names.strip().split('\n')
-        m1_list = grades_m1.strip().split('\n') if grades_m1 else []
+        m1_list = grades_m1.strip().split('\n')
         m2_list = grades_m2.strip().split('\n') if grades_m2 else []
         m3_list = grades_m3.strip().split('\n') if grades_m3 else []
         m4_list = grades_m4.strip().split('\n') if grades_m4 else []
@@ -117,68 +176,75 @@ if st.button("🚀 تحليل البيانات وإنشاء التقرير", typ
         
         data = []
         for i in range(max_len):
-            data.append([str(i+1).zfill(2), name_list[i], m1_list[i] if i < len(m1_list) else '', 
-                         m2_list[i] if i < len(m2_list) else '', 
-                         m3_list[i] if i < len(m3_list) else '', 
-                         m4_list[i] if i < len(m4_list) else ''])
-        
-        df = pd.DataFrame(data, columns=['الرقم', 'الاسم', 'م1', 'م2', 'م3', 'م4'])
-        df['الصعوبات'] = df.apply(get_difficulties, axis=1)
-        df['الفوج'] = df.apply(classify_student, axis=1)
-        
-        mentors = df[df['الفوج'] == 'مرشد (أ/ب)']
-        students_need_support = df[df['الفوج'] != 'مرشد (أ/ب)']
-        
-        groups = defaultdict(list)
-        for _, student in students_need_support.iterrows():
-            if student['الصعوبات']:
-                key = ', '.join(student['الصعوبات'])
-            else:
-                key = 'صعوبة غير محددة'
-            groups[key].append(student['الاسم'])
-        
-        st.success(f"✅ تم تحليل {len(df)} تلميذاً بنجاح")
-        
-        st.subheader("📊 جدول التلاميذ المصنفين")
-        st.dataframe(df, use_container_width=True)
-        
-        st.subheader("📈 إحصائيات الأفواج")
-        col1, col2, col3, col4 = st.columns(4)
-        counts = df['الفوج'].value_counts()
-        with col1:
-            st.metric("🆘 الإنقاذ", counts.get("فوج إنقاذ عاجل (د)", 0))
-        with col2:
-            st.metric("📚 الدعم", counts.get("فوج دعم مكثف (ج)", 0))
-        with col3:
-            st.metric("🌟 التعزيز", counts.get("مرشد (أ/ب)", 0))
-        with col4:
-            st.metric("📖 الأخرى", counts.get("غير مصنف", 0))
-        
-        st.subheader("📋 تقرير المعالجة البيداغوجية")
-        template = memo_templates.get(matiere, memo_templates['رياضيات'])
-        
-        st.markdown(f"**المادة:** {matiere}")
-        st.markdown(f"**المستوى:** {niveau}")
-        st.markdown(f"**عدد التلاميذ:** {len(df)}")
-        st.markdown(f"**عدد المرشدين (أ/ب):** {len(mentors)}")
-        if not mentors.empty:
-            st.markdown(f"**المرشدون:** {', '.join(mentors['الاسم'].tolist())}")
-        
-        st.divider()
-        
-        for i, (difficulty, students) in enumerate(groups.items(), 1):
-            with st.expander(f"🔹 المجموعة {i} - الصعوبة: {difficulty}"):
-                st.write(f"**التلاميذ:** {', '.join(students)}")
-                st.write(f"**عددهم:** {len(students)}")
-                st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
-                st.write(f"**📝 الأنشطة:** {template['activities']}")
-                st.write(f"**🧰 الوسائل:** {template['tools']}")
-                st.write(f"**📊 التقييم:** {template['evaluation']}")
-                
-                if len(students) <= 5:
-                    st.info("💡 مجموعة صغيرة → دعم فردي مكثف")
-                else:
-                    st.info("💡 مجموعة متوسطة → مجموعات فرعية داخل المجموعة")
-        
-        csv = df.to_csv(index=False)
-        st.download_button("📥 تحميل التقرير (CSV)", csv, f"تقرير_{matiere}_{niveau}.csv", "text/csv")
+            data.append([name_list[i], m1_list[i], m2_list[i], m3_list[i], m4_list[i]])
+        df_analysis = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+    else:
+        st.error("❌ الرجاء إدخال البيانات أو رفع صورة واستخراج البيانات منها.")
+        st.stop()
+    
+    # تطبيق التحليل
+    df_analysis['الصعوبات'] = df_analysis.apply(get_difficulties, axis=1)
+    df_analysis['الفوج'] = df_analysis.apply(classify_student, axis=1)
+    
+    mentors = df_analysis[df_analysis['الفوج'] == 'مرشد (أ/ب)']
+    students_need_support = df_analysis[df_analysis['الفوج'] != 'مرشد (أ/ب)']
+    
+    groups = defaultdict(list)
+    for _, student in students_need_support.iterrows():
+        if student['الصعوبات']:
+            key = ', '.join(student['الصعوبات'])
+        else:
+            key = 'صعوبة غير محددة'
+        groups[key].append(student['الاسم'])
+    
+    st.balloons()
+    st.success(f"✅ تم تحليل {len(df_analysis)} تلميذاً بنجاح")
+    
+    # إحصائيات
+    st.subheader("📈 إحصائيات الأفواج")
+    col1, col2, col3 = st.columns(3)
+    counts = df_analysis['الفوج'].value_counts()
+    with col1:
+        st.metric("🆘 الإنقاذ", counts.get("فوج إنقاذ عاجل (د)", 0))
+    with col2:
+        st.metric("📚 الدعم", counts.get("فوج دعم مكثف (ج)", 0))
+    with col3:
+        st.metric("🌟 التعزيز", counts.get("مرشد (أ/ب)", 0))
+    
+    # عرض الجدول
+    with st.expander("📊 عرض جدول التلاميذ"):
+        st.dataframe(df_analysis, use_container_width=True)
+    
+    # التقرير
+    st.subheader("📋 تقرير المعالجة البيداغوجية")
+    template = memo_templates.get(matiere, memo_templates['رياضيات'])
+    
+    st.markdown(f"""
+    <div style="background-color: #f0f4ff; padding: 15px; border-radius: 15px;">
+        <b>المادة:</b> {matiere}<br>
+        <b>المستوى:</b> {niveau}<br>
+        <b>عدد التلاميذ:</b> {len(df_analysis)}<br>
+        <b>عدد المرشدين:</b> {len(mentors)}
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if not mentors.empty:
+        st.info(f"👨‍🏫 المرشدون: {', '.join(mentors['الاسم'].tolist())}")
+    
+    st.divider()
+    
+    for i, (difficulty, students) in enumerate(groups.items(), 1):
+        with st.expander(f"🔹 المجموعة {i} - الصعوبة: {difficulty}"):
+            st.write(f"**التلاميذ:** {', '.join(students)}")
+            st.write(f"**عددهم:** {len(students)}")
+            st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
+            st.write(f"**📝 الأنشطة:** {template['activities']}")
+    
+    # تحميل التقرير
+    csv = df_analysis.to_csv(index=False)
+    st.download_button(
+        label="📥 تحميل التقرير (Excel)",
+        data=csv,
+        file_name=f"تقرير_{matiere}_{niveau}.csv",
+        mime="text/csv"
+)
