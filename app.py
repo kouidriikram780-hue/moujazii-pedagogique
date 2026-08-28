@@ -37,7 +37,53 @@ def extract_students_smart(text):
             if len(name_text) > 2 and re.search(r'[\u0600-\u06FF]', name_text):
                 students.append([name_text] + grades)
     
+    # إذا لم نجد نتائج، نحاول نمطاً آخر (البحث عن أسماء متبوعة بأرقام)
+    if not students:
+        for line in lines:
+            line = line.strip()
+            # البحث عن اسم عربي + 4 أرقام أو تقديرات
+            match = re.search(r'([\u0600-\u06FF\s]{2,})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)', line)
+            if match:
+                name = match.group(1).strip()
+                # تحويل الأرقام إلى تقديرات تقريبية
+                m1 = 'ج' if int(match.group(2)) < 50 else 'أ'
+                m2 = 'ج' if int(match.group(3)) < 50 else 'أ'
+                m3 = 'ج' if int(match.group(4)) < 50 else 'أ'
+                m4 = 'ج' if int(match.group(5)) < 50 else 'أ'
+                students.append([name, m1, m2, m3, m4])
+    
     return students
+
+# ============================================
+# دالة OCR باستخدام OCR.space
+# ============================================
+def ocr_space_file(file_bytes):
+    """إرسال الصورة إلى OCR.space واسترجاع النص"""
+    payload = {
+        'isOverlayRequired': False,
+        'apikey': 'helloworld',
+        'language': 'ar',  # تم التعديل
+        'isTable': True,
+        'detectOrientation': True,
+    }
+    
+    files = {'file': ('image.jpg', file_bytes, 'image/jpeg')}
+    
+    try:
+        response = requests.post('https://api.ocr.space/parse/image', files=files, data=payload, timeout=30)
+        result = response.json()
+        
+        if result.get('IsErroredOnProcessing'):
+            return None, result.get('ErrorMessage', ['خطأ غير معروف'])[0]
+        
+        if result.get('ParsedResults'):
+            parsed_text = result['ParsedResults'][0]['ParsedText']
+            return parsed_text, None
+        else:
+            return None, "❌ لم يتم العثور على نص في الصورة."
+            
+    except Exception as e:
+        return None, f"❌ خطأ في الاتصال: {e}"
 
 # ============================================
 # إعدادات الصفحة
@@ -47,7 +93,7 @@ st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="�
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# كود التفعيل (للبيع)
+# كود التفعيل
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
@@ -75,40 +121,6 @@ st.caption("صوّر الشبكة الورقية بوضوح وارفعها")
 
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
-# ============================================
-# دالة OCR باستخدام OCR.space (مجاني)
-# ============================================
-def ocr_space_file(file_bytes):
-    """إرسال الصورة إلى OCR.space واسترجاع النص"""
-    payload = {
-        'isOverlayRequired': False,
-        'apikey': 'helloworld',  # مفتاح تجريبي مجاني
-        'language': 'ara',
-        'isTable': True,
-        'detectOrientation': True,
-    }
-    
-    files = {'file': ('image.jpg', file_bytes, 'image/jpeg')}
-    
-    try:
-        response = requests.post('https://api.ocr.space/parse/image', files=files, data=payload, timeout=30)
-        result = response.json()
-        
-        if result.get('IsErroredOnProcessing'):
-            return None, result.get('ErrorMessage', ['خطأ غير معروف'])[0]
-        
-        if result.get('ParsedResults'):
-            parsed_text = result['ParsedResults'][0]['ParsedText']
-            return parsed_text, None
-        else:
-            return None, "❌ لم يتم العثور على نص في الصورة."
-            
-    except Exception as e:
-        return None, f"❌ خطأ في الاتصال: {e}"
-
-# ============================================
-# معالجة الصورة
-# ============================================
 if uploaded_file is not None:
     try:
         img = Image.open(uploaded_file)
@@ -116,10 +128,7 @@ if uploaded_file is not None:
         
         if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
             with st.spinner("جاري إرسال الصورة إلى خادم OCR..."):
-                # قراءة بيانات الصورة
                 file_bytes = uploaded_file.getvalue()
-                
-                # إرسال إلى OCR.space
                 parsed_text, error = ocr_space_file(file_bytes)
                 
                 if error:
@@ -129,7 +138,6 @@ if uploaded_file is not None:
                     with st.expander("📝 عرض النص المستخرج"):
                         st.text(parsed_text)
                     
-                    # استخراج البيانات من النص
                     data = extract_students_smart(parsed_text)
                     
                     if data:
@@ -211,7 +219,6 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
     st.balloons()
     st.success(f"✅ تم تقسيم {len(df_analysis)} تلميذاً إلى أفواج!")
     
-    # إحصائيات
     st.subheader("📈 إحصائيات الأفواج")
     col1, col2, col3 = st.columns(3)
     counts = df_analysis['الفوج'].value_counts()
@@ -255,4 +262,4 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-                                  )
+    )
