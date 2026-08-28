@@ -2,9 +2,42 @@ import streamlit as st
 import pandas as pd
 from collections import defaultdict
 from PIL import Image
-import easyocr
+import requests
 import re
-import numpy as np
+import io
+
+# ============================================
+# دالة استخراج البيانات الذكية
+# ============================================
+def extract_students_smart(text):
+    """استخراج الأسماء والتقديرات من النص"""
+    lines = text.strip().split('\n')
+    students = []
+    
+    for line in lines:
+        line = line.strip()
+        if len(line) < 3:
+            continue
+        
+        # البحث عن التقديرات (م، أ، ج، د، ح، غ) في السطر
+        grades = re.findall(r'[مأجدحغ]', line)
+        
+        if len(grades) >= 4:
+            grades = grades[:4]
+            
+            # إزالة التقديرات من النص للحصول على الاسم
+            name_text = line
+            for g in grades:
+                name_text = name_text.replace(g, '', 1)
+            
+            # تنظيف النص (إزالة الأرقام والرموز)
+            name_text = re.sub(r'[0-9\|\-\(\)\.\,\s]+', ' ', name_text)
+            name_text = re.sub(r'\s+', ' ', name_text).strip()
+            
+            if len(name_text) > 2 and re.search(r'[\u0600-\u06FF]', name_text):
+                students.append([name_text] + grades)
+    
+    return students
 
 # ============================================
 # إعدادات الصفحة
@@ -35,94 +68,84 @@ with col2:
 st.divider()
 
 # ============================================
-# EasyOCR - استخراج النص من الصورة
+# رفع الصورة
 # ============================================
 st.subheader("📸 رفع شبكة التقييم")
 st.caption("صوّر الشبكة الورقية بوضوح وارفعها")
 
 uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
 
-# تحميل نموذج EasyOCR (مرة واحدة فقط)
-@st.cache_resource
-def load_easyocr():
-    return easyocr.Reader(['ar', 'en'], gpu=False)
+# ============================================
+# دالة OCR باستخدام OCR.space (مجاني)
+# ============================================
+def ocr_space_file(file_bytes):
+    """إرسال الصورة إلى OCR.space واسترجاع النص"""
+    payload = {
+        'isOverlayRequired': False,
+        'apikey': 'helloworld',  # مفتاح تجريبي مجاني
+        'language': 'ara',
+        'isTable': True,
+        'detectOrientation': True,
+    }
+    
+    files = {'file': ('image.jpg', file_bytes, 'image/jpeg')}
+    
+    try:
+        response = requests.post('https://api.ocr.space/parse/image', files=files, data=payload, timeout=30)
+        result = response.json()
+        
+        if result.get('IsErroredOnProcessing'):
+            return None, result.get('ErrorMessage', ['خطأ غير معروف'])[0]
+        
+        if result.get('ParsedResults'):
+            parsed_text = result['ParsedResults'][0]['ParsedText']
+            return parsed_text, None
+        else:
+            return None, "❌ لم يتم العثور على نص في الصورة."
+            
+    except Exception as e:
+        return None, f"❌ خطأ في الاتصال: {e}"
 
+# ============================================
+# معالجة الصورة
+# ============================================
 if uploaded_file is not None:
     try:
-        # عرض الصورة
         img = Image.open(uploaded_file)
         st.image(img, caption="الصورة المرفوعة", use_container_width=True)
         
         if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
-            with st.spinner("جاري تحليل الصورة باستخدام EasyOCR..."):
-                try:
-                    # تحويل الصورة إلى array
-                    img_array = np.array(img)
+            with st.spinner("جاري إرسال الصورة إلى خادم OCR..."):
+                # قراءة بيانات الصورة
+                file_bytes = uploaded_file.getvalue()
+                
+                # إرسال إلى OCR.space
+                parsed_text, error = ocr_space_file(file_bytes)
+                
+                if error:
+                    st.error(error)
+                elif parsed_text:
+                    st.success("✅ تم استخراج النص بنجاح!")
+                    with st.expander("📝 عرض النص المستخرج"):
+                        st.text(parsed_text)
                     
-                    # استخراج النص باستخدام EasyOCR
-                    reader = load_easyocr()
-                    results = reader.readtext(img_array, detail=0, paragraph=False)
+                    # استخراج البيانات من النص
+                    data = extract_students_smart(parsed_text)
                     
-                    # تجميع النص
-                    full_text = '\n'.join(results)
-                    
-                    if full_text.strip():
-                        st.success("✅ تم استخراج النص بنجاح!")
-                        with st.expander("📝 عرض النص المستخرج"):
-                            st.text(full_text)
-                        
-                        # استخراج البيانات من النص
-                        data = extract_students_smart(full_text)
-                        
-                        if data:
-                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
-                            st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
-                            st.dataframe(df, use_container_width=True)
-                            st.session_state['df_image'] = df
-                        else:
-                            st.warning("⚠️ لم يتم العثور على بيانات. حاول تحسين جودة الصورة.")
+                    if data:
+                        df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                        st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
+                        st.dataframe(df, use_container_width=True)
+                        st.session_state['df_image'] = df
                     else:
-                        st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
-                        
-                except Exception as e:
-                    st.error(f"❌ خطأ: {e}")
+                        st.warning("⚠️ لم يتم العثور على بيانات. حاول تحسين جودة الصورة.")
+                else:
+                    st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
+                    
     except Exception as e:
-        st.error(f"❌ خطأ في فتح الصورة: {e}")
+        st.error(f"❌ خطأ: {e}")
 
 st.markdown("---")
-
-# ============================================
-# دالة استخراج البيانات الذكية
-# ============================================
-def extract_students_smart(text):
-    """استخراج الأسماء والتقديرات من النص"""
-    lines = text.strip().split('\n')
-    students = []
-    
-    for line in lines:
-        line = line.strip()
-        if len(line) < 3:
-            continue
-        
-        # البحث عن التقديرات (م، أ، ج، د) في السطر
-        grades = re.findall(r'[مأجد]', line)
-        
-        if len(grades) >= 4:
-            grades = grades[:4]
-            
-            # إزالة التقديرات من النص للحصول على الاسم
-            name_text = line
-            for g in grades:
-                name_text = name_text.replace(g, '', 1)
-            
-            # تنظيف النص (إزالة الأرقام والرموز)
-            name_text = re.sub(r'[0-9\|\-\(\)\.\,\s]+', ' ', name_text)
-            name_text = re.sub(r'\s+', ' ', name_text).strip()
-            
-            if len(name_text) > 2 and re.search(r'[\u0600-\u06FF]', name_text):
-                students.append([name_text] + grades)
-    
-    return students
 
 # ============================================
 # دوال التحليل
@@ -232,4 +255,4 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-    )
+                                  )
