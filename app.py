@@ -1,50 +1,83 @@
 import streamlit as st
 import pandas as pd
 from collections import defaultdict
-from PIL import Image, ImageEnhance, ImageFilter
-import pytesseract
+from PIL import Image
+import requests
+import json
 import re
-import os
-import numpy as np
+import io
 
 # ============================================
-# إعداد مسار Tesseract
+# إعدادات الصفحة
 # ============================================
-if os.name == 'nt':
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
+
+st.title("📚 المجزئ البيداغوجي الذكي")
+st.markdown("### للطور المتوسط - التعلم بالأقران")
+
+# كود التفعيل (للبيع)
+st.sidebar.header("🔑 تفعيل المنتج")
+code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
+VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
+
+if code not in VALID_CODES:
+    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
+    st.stop()
 else:
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+    st.sidebar.success("✅ تم التفعيل بنجاح")
+
+# اختيار المادة والمستوى
+col1, col2 = st.columns(2)
+with col1:
+    niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
+with col2:
+    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ وجغرافيا"])
+
+st.divider()
 
 # ============================================
-# دالة معالجة الصورة متعددة الخطوات
+# OCR.space API - استخراج النص من الصورة
 # ============================================
-def preprocess_image(img):
-    """
-    تحسين جودة الصورة قبل OCR باستخدام تقنيات متعددة
-    """
-    # 1. تحويل إلى تدرج رمادي (Grayscale)
-    img = img.convert('L')
+st.subheader("📸 رفع شبكة التقييم")
+st.caption("صوّر الشبكة الورقية بوضوح وارفعها")
+
+# ضع مفتاح API الخاص بك هنا
+OCR_API_KEY = st.secrets.get("OCR_API_KEY", "helloworld")  # استخدم st.secrets أو ضع المفتاح مباشرة
+
+uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
+
+def ocr_space_file(file_bytes, api_key=OCR_API_KEY, language='ara'):
+    """إرسال الصورة إلى OCR.space واسترجاع النص"""
+    payload = {
+        'isOverlayRequired': False,
+        'apikey': api_key,
+        'language': language,
+        'isTable': True,
+        'detectOrientation': True,
+        'scale': True,
+    }
     
-    # 2. تحسين التباين (Contrast Enhancement)
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.5)  # زيادة التباين
+    files = {'file': ('image.jpg', file_bytes, 'image/jpeg')}
     
-    # 3. زيادة الحدة (Sharpening)
-    img = img.filter(ImageFilter.SHARPEN)
-    img = img.filter(ImageFilter.SHARPEN)  # مرتين لزيادة الحدة
-    
-    # 4. تكبير الصورة (Resize) لجعل النص أكبر وأوضح
-    width, height = img.size
-    img = img.resize((width*2, height*2), Image.Resampling.LANCZOS)
-    
-    # 5. تحسين السطوع (Brightness)
-    enhancer = ImageEnhance.Brightness(img)
-    img = enhancer.enhance(1.2)
-    
-    return img
+    try:
+        response = requests.post('https://api.ocr.space/parse/image', files=files, data=payload)
+        result = response.json()
+        
+        if result.get('IsErroredOnProcessing'):
+            error_msg = result.get('ErrorMessage', ['خطأ غير معروف'])[0]
+            return None, f"❌ خطأ في OCR: {error_msg}"
+        
+        if result.get('ParsedResults'):
+            parsed_text = result['ParsedResults'][0]['ParsedText']
+            return parsed_text, None
+        else:
+            return None, "❌ لم يتم العثور على نص في الصورة."
+            
+    except Exception as e:
+        return None, f"❌ خطأ في الاتصال: {e}"
 
 # ============================================
-# دالة استخراج البيانات الذكية
+# دالة استخراج البيانات الذكية من النص
 # ============================================
 def extract_students_smart(text):
     """استخراج الأسماء والتقديرات من النص"""
@@ -88,83 +121,6 @@ def extract_students_smart(text):
     return students
 
 # ============================================
-# واجهة Streamlit
-# ============================================
-st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
-
-st.title("📚 المجزئ البيداغوجي الذكي")
-st.markdown("### للطور المتوسط - التعلم بالأقران")
-
-# كود التفعيل
-st.sidebar.header("🔑 تفعيل المنتج")
-code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
-VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
-
-if code not in VALID_CODES:
-    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
-    st.stop()
-else:
-    st.sidebar.success("✅ تم التفعيل بنجاح")
-
-# اختيار المادة والمستوى
-col1, col2 = st.columns(2)
-with col1:
-    niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
-with col2:
-    matiere = st.selectbox("📖 المادة", ["رياضيات", "علوم", "لغة عربية", "لغة فرنسية", "إنجليزية", "تاريخ وجغرافيا"])
-
-st.divider()
-
-# ============================================
-# رفع الصورة مع المعالجة
-# ============================================
-st.subheader("📸 رفع شبكة التقييم (مع تحسين الصورة)")
-st.caption("صوّر الشبكة الورقية بوضوح وارفعها")
-
-uploaded_file = st.file_uploader("اختر صورة الشبكة", type=["jpg", "png", "jpeg"])
-
-if uploaded_file is not None:
-    try:
-        # فتح الصورة الأصلية
-        img = Image.open(uploaded_file)
-        st.image(img, caption="الصورة الأصلية", use_container_width=True)
-        
-        # معالجة الصورة
-        processed_img = preprocess_image(img)
-        st.image(processed_img, caption="الصورة بعد التحسين", use_container_width=True)
-        
-        if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
-            with st.spinner("جاري تحليل الصورة..."):
-                try:
-                    # استخراج النص من الصورة المعالجة
-                    text = pytesseract.image_to_string(processed_img, lang='ara')
-                    
-                    if text.strip():
-                        st.success("✅ تم استخراج النص بنجاح!")
-                        with st.expander("📝 عرض النص المستخرج"):
-                            st.text(text)
-                        
-                        # استخراج البيانات من النص
-                        data = extract_students_smart(text)
-                        
-                        if data:
-                            df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
-                            st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
-                            st.dataframe(df, use_container_width=True)
-                            st.session_state['df_image'] = df
-                        else:
-                            st.warning("⚠️ لم يتم العثور على بيانات. حاول تحسين جودة الصورة.")
-                    else:
-                        st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
-                        
-                except Exception as e:
-                    st.error(f"❌ خطأ: {e}")
-    except Exception as e:
-        st.error(f"❌ خطأ في فتح الصورة: {e}")
-
-st.markdown("---")
-
-# ============================================
 # دوال التحليل
 # ============================================
 def get_difficulties(row):
@@ -200,6 +156,48 @@ memo_templates = {
     'إنجليزية': {'strategies': 'Total Physical Response + Storytelling', 'activities': 'قصص مصورة، أغاني'},
     'تاريخ': {'strategies': 'التعلم بالخرائط + السرد القصصي', 'activities': 'خرائط ذهنية، خطوط زمنية'}
 }
+
+# ============================================
+# رفع الصورة ومعالجتها
+# ============================================
+if uploaded_file is not None:
+    try:
+        # عرض الصورة
+        img = Image.open(uploaded_file)
+        st.image(img, caption="الصورة المرفوعة", use_container_width=True)
+        
+        if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
+            with st.spinner("جاري إرسال الصورة إلى OCR.space..."):
+                # قراءة بيانات الصورة
+                file_bytes = uploaded_file.getvalue()
+                
+                # إرسال إلى OCR.space
+                parsed_text, error = ocr_space_file(file_bytes)
+                
+                if error:
+                    st.error(error)
+                elif parsed_text:
+                    st.success("✅ تم استخراج النص بنجاح!")
+                    with st.expander("📝 عرض النص المستخرج"):
+                        st.text(parsed_text)
+                    
+                    # استخراج البيانات من النص
+                    data = extract_students_smart(parsed_text)
+                    
+                    if data:
+                        df = pd.DataFrame(data, columns=['الاسم', 'م1', 'م2', 'م3', 'م4'])
+                        st.success(f"✅ تم استخراج بيانات {len(df)} تلميذاً بنجاح!")
+                        st.dataframe(df, use_container_width=True)
+                        st.session_state['df_image'] = df
+                    else:
+                        st.warning("⚠️ لم يتم العثور على بيانات. حاول تحسين جودة الصورة أو استخدام شبكة أوضح.")
+                else:
+                    st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
+                    
+    except Exception as e:
+        st.error(f"❌ خطأ: {e}")
+
+st.markdown("---")
 
 # ============================================
 # زر التقسيم النهائي
@@ -272,4 +270,4 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-            )
+    )
