@@ -1,6 +1,6 @@
 streamlit
 pandas
-pytesseract
-Pillow
+easyocr
 opencv-python-headless
-google-generativeai
+numpy
+Pillow
