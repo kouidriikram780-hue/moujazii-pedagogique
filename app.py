@@ -5,9 +5,65 @@ from PIL import Image
 import requests
 import re
 import io
+import time
+import base64
 
 # ============================================
-# دالة استخراج البيانات الذكية
+# إعدادات الصفحة
+# ============================================
+st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
+
+st.title("📚 المجزئ البيداغوجي الذكي")
+st.markdown("### للطور المتوسط - التعلم بالأقران")
+
+# ============================================
+# كود التفعيل (للبيع)
+# ============================================
+st.sidebar.header("🔑 تفعيل المنتج")
+code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
+VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
+
+if code not in VALID_CODES:
+    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
+    st.stop()
+else:
+    st.sidebar.success("✅ تم التفعيل بنجاح")
+
+# ============================================
+# مفتاح DeepRead API (من st.secrets)
+# ============================================
+DEEPREAD_API_KEY = st.secrets.get("DEEPREAD_API_KEY", "YOUR_API_KEY_HERE")
+
+# ============================================
+# دالة استخراج النص باستخدام DeepRead API
+# ============================================
+def extract_text_with_deepread(image_bytes):
+    """إرسال الصورة إلى DeepRead API واسترجاع النص"""
+    url = "https://api.deepread.tech/v1/process"
+    headers = {"X-API-Key": DEEPREAD_API_KEY}
+    files = {'file': ('image.jpg', image_bytes, 'image/jpeg')}
+    data = {'pipeline': 'fast'}
+    
+    try:
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            # محاولة استخراج النص من الرد
+            if 'text' in result:
+                return result['text'], None
+            elif 'result' in result and 'text' in result['result']:
+                return result['result']['text'], None
+            else:
+                return None, "❌ لم يتم العثور على نص في الرد."
+        else:
+            return None, f"❌ خطأ في الاتصال: {response.status_code} - {response.text}"
+    except requests.exceptions.Timeout:
+        return None, "❌ انتهى الوقت المحدد للاتصال بالخادم."
+    except Exception as e:
+        return None, f"❌ خطأ: {e}"
+
+# ============================================
+# دالة استخراج البيانات الذكية من النص
 # ============================================
 def extract_students_smart(text):
     """استخراج الأسماء والتقديرات من النص"""
@@ -55,56 +111,8 @@ def extract_students_smart(text):
     return students
 
 # ============================================
-# دالة OCR باستخدام OCR.space
-# ============================================
-def ocr_space_file(file_bytes):
-    """إرسال الصورة إلى OCR.space واسترجاع النص"""
-    payload = {
-        'isOverlayRequired': False,
-        'apikey': 'helloworld',
-        'language': 'ar',  # تم التعديل
-        'isTable': True,
-        'detectOrientation': True,
-    }
-    
-    files = {'file': ('image.jpg', file_bytes, 'image/jpeg')}
-    
-    try:
-        response = requests.post('https://api.ocr.space/parse/image', files=files, data=payload, timeout=30)
-        result = response.json()
-        
-        if result.get('IsErroredOnProcessing'):
-            return None, result.get('ErrorMessage', ['خطأ غير معروف'])[0]
-        
-        if result.get('ParsedResults'):
-            parsed_text = result['ParsedResults'][0]['ParsedText']
-            return parsed_text, None
-        else:
-            return None, "❌ لم يتم العثور على نص في الصورة."
-            
-    except Exception as e:
-        return None, f"❌ خطأ في الاتصال: {e}"
-
-# ============================================
-# إعدادات الصفحة
-# ============================================
-st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="📚", layout="centered")
-
-st.title("📚 المجزئ البيداغوجي الذكي")
-st.markdown("### للطور المتوسط - التعلم بالأقران")
-
-# كود التفعيل
-st.sidebar.header("🔑 تفعيل المنتج")
-code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
-VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
-
-if code not in VALID_CODES:
-    st.sidebar.warning("⚠️ كود غير صحيح. اشترِ المنتج للوصول")
-    st.stop()
-else:
-    st.sidebar.success("✅ تم التفعيل بنجاح")
-
 # اختيار المادة والمستوى
+# ============================================
 col1, col2 = st.columns(2)
 with col1:
     niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
@@ -127,9 +135,12 @@ if uploaded_file is not None:
         st.image(img, caption="الصورة المرفوعة", use_container_width=True)
         
         if st.button("🔍 استخراج البيانات من الصورة", type="primary"):
-            with st.spinner("جاري إرسال الصورة إلى خادم OCR..."):
+            with st.spinner("جاري إرسال الصورة إلى خادم DeepRead..."):
+                # قراءة بيانات الصورة
                 file_bytes = uploaded_file.getvalue()
-                parsed_text, error = ocr_space_file(file_bytes)
+                
+                # إرسال إلى DeepRead
+                parsed_text, error = extract_text_with_deepread(file_bytes)
                 
                 if error:
                     st.error(error)
@@ -138,6 +149,7 @@ if uploaded_file is not None:
                     with st.expander("📝 عرض النص المستخرج"):
                         st.text(parsed_text)
                     
+                    # استخراج البيانات من النص
                     data = extract_students_smart(parsed_text)
                     
                     if data:
@@ -151,7 +163,7 @@ if uploaded_file is not None:
                     st.error("❌ لم يتم استخراج أي نص. تأكد من وضوح الصورة.")
                     
     except Exception as e:
-        st.error(f"❌ خطأ: {e}")
+        st.error(f"❌ خطأ في فتح الصورة: {e}")
 
 st.markdown("---")
 
@@ -219,6 +231,7 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
     st.balloons()
     st.success(f"✅ تم تقسيم {len(df_analysis)} تلميذاً إلى أفواج!")
     
+    # إحصائيات
     st.subheader("📈 إحصائيات الأفواج")
     col1, col2, col3 = st.columns(3)
     counts = df_analysis['الفوج'].value_counts()
@@ -262,4 +275,4 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
         data=csv,
         file_name=f"تقرير_{matiere}_{niveau}.csv",
         mime="text/csv"
-    )
+                )
