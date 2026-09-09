@@ -10,9 +10,7 @@ st.set_page_config(page_title="المجزئ البيداغوجي", page_icon="�
 st.title("📚 المجزئ البيداغوجي الذكي")
 st.markdown("### للطور المتوسط - التعلم بالأقران")
 
-# ============================================
-# كود التفعيل (للبيع)
-# ============================================
+# كود التفعيل
 st.sidebar.header("🔑 تفعيل المنتج")
 code = st.sidebar.text_input("أدخل كود التفعيل", type="password")
 VALID_CODES = ["MOYEN2025", "MED2026", "TEACHERDZ"]
@@ -23,9 +21,7 @@ if code not in VALID_CODES:
 else:
     st.sidebar.success("✅ تم التفعيل بنجاح")
 
-# ============================================
 # اختيار المادة والمستوى
-# ============================================
 col1, col2 = st.columns(2)
 with col1:
     niveau = st.selectbox("📌 المستوى", ["1 متوسط", "2 متوسط", "3 متوسط", "4 متوسط"])
@@ -35,76 +31,21 @@ with col2:
 st.divider()
 
 # ============================================
-# الجدول التفاعلي للإدخال
+# الإدخال عبر مربعات نصية
 # ============================================
-st.subheader("✏️ أدخل بيانات التلاميذ في الجدول")
-st.caption("املأ الأسماء واختر التقديرات (م، أ، ج، د) من القائمة المنسدلة")
+st.subheader("✏️ أدخل بيانات التلاميذ")
+st.caption("اكتب كل اسم في سطر، وكل تقدير في سطر مقابل")
 
-# إعداد بيانات افتراضية (5 صفوف فارغة كنموذج)
-default_data = {
-    "الاسم": ["", "", "", "", ""],
-    "المعيار 1": ["", "", "", "", ""],
-    "المعيار 2": ["", "", "", "", ""],
-    "المعيار 3": ["", "", "", "", ""],
-    "المعيار 4": ["", "", "", "", ""],
-}
-df_default = pd.DataFrame(default_data)
-
-# عرض المحرر مع خيارات منسدلة للتقديرات
-edited_df = st.data_editor(
-    df_default,
-    column_config={
-        "الاسم": st.column_config.TextColumn("👨‍🎓 الاسم", required=True),
-        "المعيار 1": st.column_config.SelectboxColumn(
-            "📊 المعيار 1",
-            options=["", "م", "أ", "ج", "د"],
-            required=False,
-        ),
-        "المعيار 2": st.column_config.SelectboxColumn(
-            "📊 المعيار 2",
-            options=["", "م", "أ", "ج", "د"],
-            required=False,
-        ),
-        "المعيار 3": st.column_config.SelectboxColumn(
-            "📊 المعيار 3",
-            options=["", "م", "أ", "ج", "د"],
-            required=False,
-        ),
-        "المعيار 4": st.column_config.SelectboxColumn(
-            "📊 المعيار 4",
-            options=["", "م", "أ", "ج", "د"],
-            required=False,
-        ),
-    },
-    num_rows="dynamic",  # يسمح بإضافة أو حذف صفوف
-    use_container_width=True,
-)
-
-st.caption("💡 يمكنك إضافة صفوف جديدة بالضغط على '+' في أسفل الجدول.")
-
-st.divider()
+names = st.text_area("👨‍🎓 أسماء التلاميذ (كل اسم في سطر)", height=150)
+m1 = st.text_area("📊 تقديرات المعيار 1 (م، أ، ج، د)", height=150)
+m2 = st.text_area("📊 تقديرات المعيار 2 (م، أ، ج، د)", height=150)
+m3 = st.text_area("📊 تقديرات المعيار 3 (م، أ، ج، د)", height=150)
+m4 = st.text_area("📊 تقديرات المعيار 4 (م، أ، ج، د)", height=150)
 
 # ============================================
 # دوال التحليل
 # ============================================
-def get_difficulties(row):
-    difficulties = []
-    if row['المعيار 1'] == 'ج':
-        difficulties.append('المعيار 1')
-    if row['المعيار 2'] == 'ج':
-        difficulties.append('المعيار 2')
-    if row['المعيار 3'] == 'ج':
-        difficulties.append('المعيار 3')
-    if row['المعيار 4'] == 'ج':
-        difficulties.append('المعيار 4')
-    return difficulties
-
-def classify_student(row):
-    grades = [row['المعيار 1'], row['المعيار 2'], row['المعيار 3'], row['المعيار 4']]
-    # تجاهل التلاميذ الذين لم يتم إدخال بياناتهم
-    if not any(grades) or not row['الاسم']:
-        return 'غير مكتمل'
-    
+def classify_student(grades):
     if all(g in ['م', 'أ'] for g in grades):
         return 'مرشد (أ/ب)'
     elif 'ج' in grades:
@@ -116,7 +57,18 @@ def classify_student(row):
     else:
         return 'غير مصنف'
 
-# قوالب المذكرات حسب المواد
+def get_difficulties(grades):
+    difficulties = []
+    if grades[0] == 'ج':
+        difficulties.append('المعيار 1')
+    if grades[1] == 'ج':
+        difficulties.append('المعيار 2')
+    if grades[2] == 'ج':
+        difficulties.append('المعيار 3')
+    if grades[3] == 'ج':
+        difficulties.append('المعيار 4')
+    return difficulties
+
 memo_templates = {
     'رياضيات': {'strategies': 'حل المشكلات + التعلم التعاوني', 'activities': 'تمارين تطبيقية، مسائل حياتية'},
     'علوم': {'strategies': 'التجريب + الاستقصاء العلمي', 'activities': 'تجارب عملية، مشاريع بحثية'},
@@ -127,25 +79,44 @@ memo_templates = {
 }
 
 # ============================================
-# زر التحليل والتقسيم
+# زر التحليل
 # ============================================
 if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء التقرير", type="primary"):
-    # تصفية الصفوف الفارغة (التي ليس فيها اسم)
-    df_filtered = edited_df[edited_df['الاسم'].str.strip() != ""].copy()
+    name_list = [n.strip() for n in names.strip().split('\n') if n.strip()]
+    m1_list = [g.strip() for g in m1.strip().split('\n') if g.strip()]
+    m2_list = [g.strip() for g in m2.strip().split('\n') if g.strip()]
+    m3_list = [g.strip() for g in m3.strip().split('\n') if g.strip()]
+    m4_list = [g.strip() for g in m4.strip().split('\n') if g.strip()]
     
-    if df_filtered.empty:
-        st.error("❌ الرجاء إدخال أسماء التلاميذ في الجدول.")
+    if not name_list:
+        st.error("❌ الرجاء إدخال أسماء التلاميذ.")
         st.stop()
     
-    # تطبيق التحليل
-    df_filtered['الصعوبات'] = df_filtered.apply(get_difficulties, axis=1)
-    df_filtered['الفوج'] = df_filtered.apply(classify_student, axis=1)
+    if len(m1_list) != len(name_list) or len(m2_list) != len(name_list) or len(m3_list) != len(name_list) or len(m4_list) != len(name_list):
+        st.error(f"❌ عدد التقديرات لا يتطابق مع عدد الأسماء ({len(name_list)}).")
+        st.stop()
     
-    # فصل المرشدين عن التلاميذ المحتاجين
-    mentors = df_filtered[df_filtered['الفوج'] == 'مرشد (أ/ب)']
-    students_need_support = df_filtered[df_filtered['الفوج'].isin(['فوج إنقاذ عاجل (د)', 'فوج دعم مكثف (ج)'])]
+    data = []
+    for i in range(len(name_list)):
+        grades = [m1_list[i], m2_list[i], m3_list[i], m4_list[i]]
+        if not all(g in ['م', 'أ', 'ج', 'د'] for g in grades):
+            st.error(f"❌ تقديرات غير صالحة للتلميذ '{name_list[i]}'. استخدم فقط: م، أ، ج، د")
+            st.stop()
+        data.append({
+            'الاسم': name_list[i],
+            'المعيار 1': m1_list[i],
+            'المعيار 2': m2_list[i],
+            'المعيار 3': m3_list[i],
+            'المعيار 4': m4_list[i],
+        })
     
-    # تجميع حسب الصعوبات
+    df = pd.DataFrame(data)
+    df['الصعوبات'] = df.apply(lambda row: get_difficulties([row['المعيار 1'], row['المعيار 2'], row['المعيار 3'], row['المعيار 4']]), axis=1)
+    df['الفوج'] = df.apply(lambda row: classify_student([row['المعيار 1'], row['المعيار 2'], row['المعيار 3'], row['المعيار 4']]), axis=1)
+    
+    mentors = df[df['الفوج'] == 'مرشد (أ/ب)']
+    students_need_support = df[df['الفوج'].isin(['فوج إنقاذ عاجل (د)', 'فوج دعم مكثف (ج)'])]
+    
     groups = defaultdict(list)
     for _, student in students_need_support.iterrows():
         if student['الصعوبات']:
@@ -155,12 +126,11 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
         groups[key].append(student['الاسم'])
     
     st.balloons()
-    st.success(f"✅ تم تقسيم {len(df_filtered)} تلميذاً إلى أفواج!")
+    st.success(f"✅ تم تقسيم {len(df)} تلميذاً إلى أفواج!")
     
-    # إحصائيات الأفواج
     st.subheader("📈 إحصائيات الأفواج")
     col1, col2, col3 = st.columns(3)
-    counts = df_filtered['الفوج'].value_counts()
+    counts = df['الفوج'].value_counts()
     with col1:
         st.metric("🆘 فوج الإنقاذ", counts.get("فوج إنقاذ عاجل (د)", 0))
     with col2:
@@ -168,11 +138,9 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
     with col3:
         st.metric("🌟 المرشدون", counts.get("مرشد (أ/ب)", 0))
     
-    # عرض الجدول مع التصنيف
     with st.expander("📊 عرض جدول التلاميذ المصنفين", expanded=True):
-        st.dataframe(df_filtered, use_container_width=True)
+        st.dataframe(df, use_container_width=True)
     
-    # التقرير النهائي
     st.subheader("📋 تقرير المعالجة البيداغوجية")
     template = memo_templates.get(matiere, memo_templates['رياضيات'])
     
@@ -180,7 +148,7 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
     <div style="background-color: #f0f4ff; padding: 15px; border-radius: 15px;">
         <b>المادة:</b> {matiere}<br>
         <b>المستوى:</b> {niveau}<br>
-        <b>عدد التلاميذ:</b> {len(df_filtered)}<br>
+        <b>عدد التلاميذ:</b> {len(df)}<br>
         <b>عدد المرشدين:</b> {len(mentors)}
     </div>
     """, unsafe_allow_html=True)
@@ -198,13 +166,7 @@ if st.button("🚀 تقسيم التلاميذ إلى أفواج وإنشاء ا
                 st.write(f"**🛠️ الاستراتيجية:** {template['strategies']}")
                 st.write(f"**📝 الأنشطة:** {template['activities']}")
     else:
-        st.info("🎉 جميع التلاميذ في مستوى جيد (مرشدون)، لا توجد مجموعات معالجة مطلوبة.")
+        st.info("🎉 جميع التلاميذ مرشدون، لا توجد مجموعات معالجة.")
     
-    # زر تحميل التقرير
-    csv = df_filtered.to_csv(index=False)
-    st.download_button(
-        label="📥 تحميل التقرير (Excel)",
-        data=csv,
-        file_name=f"تقرير_{matiere}_{niveau}.csv",
-        mime="text/csv"
-)
+    csv = df.to_csv(index=False)
+    st.download_button("📥 تحميل التقرير (Excel)", csv, f"تقرير_{matiere}_{niveau}.csv", "text/csv")
